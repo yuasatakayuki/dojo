@@ -19,11 +19,13 @@ const FEED_URL = "https://home.classdojo.com/api/storyFeed?includePrivate=true";
 
 const IMAGE_DIR = "images";
 const DATE_FORMAT = "YYYY-MM-DD";
-const MAX_FEEDS = 30;
+const DATETIME_FORMAT = "YYYY-MM-DDThh-mm-ss";
+const MAX_FEEDS = 100;
 const CONCURRENCY = 15;
 const LIMITER = RateLimit(CONCURRENCY);
 
 let feedsProcessed = 0;
+let dateCountMap = {};
 
 async function main() {
     try {
@@ -62,26 +64,53 @@ async function getFeed(url) {
     return storyFeed.data;
 }
 
+async function saveBodyText(item, counterWithinOneDay) {
+    const bodyText = item.contents.body;
+    const dateStr = moment(item.time).format(DATE_FORMAT);
+    const datetimeStr = moment(item.time).format(DATETIME_FORMAT);
+    const senderName = item.senderName.replace(" ", "_");
+    const filePath = IMAGE_DIR + "/" + dateStr + "/" + datetimeStr + "_post_" + counterWithinOneDay + "_from_" + senderName + ".text";
+    const exists = await fileExists(filePath);
+    console.log(`file ${filePath} exists = ${exists}`);
+    if (!exists) {
+        fs.writeFile(filePath, senderName + "\n" + bodyText, (err, data) => {
+            if (err) console.log(err);
+            else console.log("Saved body text to " + filePath);
+        });
+    }
+}
+
 async function processFeed(url) {
     const feed = await getFeed(url);
 
     feedsProcessed++;
-    console.log(`found ${feed._items.length} feed items...`);
 
+    i = 0;
     for (const item of feed._items) {
         const time = item.time;
         const date = moment(time).format(DATE_FORMAT);
         await createDirectory(Path.resolve(__dirname, IMAGE_DIR, date));
+        if (!dateCountMap[date]) {
+            dateCountMap[date] = 0;
+        }
+
+        const counterWithinOneDay = dateCountMap[date];
+        dateCountMap[date]++;
 
         const contents = item.contents;
+
+        saveBodyText(item, counterWithinOneDay);
+
         const attachments = contents.attachments;
 
+        var attachmentCounter = 0;
         for (const attachment of attachments) {
             const url = attachment.path;
-            const filename = getFilePath(date, url.substring(url.lastIndexOf("/") + 1));
-
+            const filename = getFilePath(date, counterWithinOneDay, attachmentCounter,
+                url.substring(url.lastIndexOf("/") + 1));
             await LIMITER();
-            downloadFileIfNotExists(url, filename);
+            downloadFileIfNotExists(url, filename, counterWithinOneDay, attachmentCounter);
+            attachmentCounter++;
         }
     }
 
@@ -130,12 +159,27 @@ async function fileExists(filePath) {
     });
 }
 
-function getFilePath(date, filename) {
+function splitBasenameAndSuffix(str) {
+    var base = new String(str).substring(str.lastIndexOf('/') + 1);
+    var suffix = "";
+    const lastIndexOfPeriod = base.lastIndexOf(".");
+    if (lastIndexOfPeriod != -1) {
+        suffix = base.substring(lastIndexOfPeriod);
+        base = base.substring(0, lastIndexOfPeriod);
+    }
+    return [base, suffix];
+}
+
+function getFilePath(date, counterWithinOneDay, attachmentCounter, filename) {
+    const basenameSuffix = splitBasenameAndSuffix(filename);
+    const basename = basenameSuffix[0];
+    const suffix = basenameSuffix[1];
+    filename = date + "_post_" + counterWithinOneDay + "_" + attachmentCounter + "_" + basename.substring(0, 4) + suffix;
     return Path.resolve(__dirname, IMAGE_DIR, date, filename);
 }
 
 async function downloadFile(url, filePath) {
-    console.log(`about to download ${filePath}...`)  
+    console.log(`about to download ${filePath}...`)
     const writer = fs.createWriteStream(filePath);
 
     const response = await axios.get(url, {
