@@ -1,0 +1,3 @@
+py3exiv2
+arrow
+python-magic
