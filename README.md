@@ -15,3 +15,18 @@ DOJO_PASSWORD={YOUR_PASSWORD_THAT_YOU_USE_TO_LOGIN_TO_CLASSDOJO}
 3. `npm start`
 
 Any assets that are scraped will go in an `images/` directory
+
+### Update EXIF date
+
+1. Install dependency:
+
+```
+./setup-mac.sh
+pip3 install -r python/requirements.txt
+```
+
+2. Run the script:
+
+```
+python3 python/update_exif_timestamp.py -d images
+```
